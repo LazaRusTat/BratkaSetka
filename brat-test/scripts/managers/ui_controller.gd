@@ -1,18 +1,25 @@
-# ui_controller.gd (ИСПРАВЛЕН - БЛОКИРОВКА КЛИКОВ)
+# ui_controller.gd (ИСПРАВЛЕН - С ОТОБРАЖЕНИЕМ УА)
 extends Node
 
 var ui_layer: CanvasLayer
 var player_data: Dictionary
+var police_system
 
 func initialize(parent_node: Node, p_player_data: Dictionary):
 	player_data = p_player_data
+	police_system = get_node_or_null("/root/PoliceSystem")
+	
 	ui_layer = CanvasLayer.new()
 	ui_layer.name = "UILayer"
-	ui_layer.layer = 50  # ✅ ПОВЕРХ сетки (5), ПОД меню (100+)
+	ui_layer.layer = 50
 	parent_node.add_child(ui_layer)
 	
 	create_top_panel(parent_node)
 	create_bottom_panel(parent_node)
+	
+	# Подписываемся на изменения УА
+	if police_system:
+		police_system.ua_changed.connect(func(_ua): update_ui())
 
 func create_top_panel(parent_node: Node):
 	var top_panel = ColorRect.new()
@@ -20,7 +27,7 @@ func create_top_panel(parent_node: Node):
 	top_panel.position = Vector2(0, 0)
 	top_panel.color = Color(0.1, 0.1, 0.1, 0.9)
 	top_panel.name = "TopPanel"
-	top_panel.mouse_filter = Control.MOUSE_FILTER_STOP  # ✅ БЛОКИРУЕМ клики!
+	top_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_layer.add_child(top_panel)
 	
 	# Аватар
@@ -43,8 +50,8 @@ func create_top_panel(parent_node: Node):
 	# Репутация
 	var rep_label = Label.new()
 	rep_label.text = "Авторитет: " + str(player_data["reputation"])
-	rep_label.position = Vector2(120, 25)
-	rep_label.add_theme_font_size_override("font_size", 18)
+	rep_label.position = Vector2(120, 18)
+	rep_label.add_theme_font_size_override("font_size", 16)
 	rep_label.add_theme_color_override("font_color", Color.WHITE)
 	rep_label.name = "ReputationLabel"
 	rep_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -53,8 +60,8 @@ func create_top_panel(parent_node: Node):
 	# Деньги
 	var balance_label = Label.new()
 	balance_label.text = "Деньги: " + str(player_data["balance"]) + " руб."
-	balance_label.position = Vector2(120, 55)
-	balance_label.add_theme_font_size_override("font_size", 18)
+	balance_label.position = Vector2(120, 43)
+	balance_label.add_theme_font_size_override("font_size", 16)
 	balance_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.3, 1.0))
 	balance_label.name = "BalanceLabel"
 	balance_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -63,24 +70,34 @@ func create_top_panel(parent_node: Node):
 	# Здоровье
 	var health_label = Label.new()
 	health_label.text = "Здоровье: " + str(player_data["health"])
-	health_label.position = Vector2(120, 85)
-	health_label.add_theme_font_size_override("font_size", 18)
+	health_label.position = Vector2(120, 68)
+	health_label.add_theme_font_size_override("font_size", 16)
 	health_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4, 1.0))
 	health_label.name = "HealthLabel"
 	health_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_layer.add_child(health_label)
 	
+	# ✅ НОВОЕ: УА полиции
+	var ua_label = Label.new()
+	ua_label.text = "🚔 УА: 0"
+	ua_label.position = Vector2(120, 93)
+	ua_label.add_theme_font_size_override("font_size", 15)
+	ua_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.3, 1.0))
+	ua_label.name = "UALabel"
+	ua_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_layer.add_child(ua_label)
+	
 	# Дата
 	var date_label = Label.new()
-	date_label.text = "02.03.1992"
-	date_label.position = Vector2(590, 25)
-	date_label.add_theme_font_size_override("font_size", 16)
+	date_label.text = "02.03.1992, 10:00"
+	date_label.position = Vector2(480, 25)
+	date_label.add_theme_font_size_override("font_size", 14)
 	date_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8, 1.0))
 	date_label.name = "DateLabel"
 	date_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_layer.add_child(date_label)
 	
-	# ✅ КНОПКА СЕТКИ
+	# Кнопка сетки
 	var grid_button = Button.new()
 	grid_button.custom_minimum_size = Vector2(50, 30)
 	grid_button.position = Vector2(540, 55)
@@ -117,7 +134,7 @@ func create_bottom_panel(parent_node: Node):
 	bottom_panel.position = Vector2(0, 1180)
 	bottom_panel.color = Color(0.1, 0.1, 0.1, 0.9)
 	bottom_panel.name = "BottomPanel"
-	bottom_panel.mouse_filter = Control.MOUSE_FILTER_STOP  # ✅ БЛОКИРУЕМ КЛИКИ!
+	bottom_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_layer.add_child(bottom_panel)
 	
 	var menu_buttons = ["Банда", "Районы", "Квесты", "Меню"]
@@ -170,6 +187,14 @@ func update_ui():
 	var health_label = ui_layer.get_node_or_null("HealthLabel")
 	if health_label:
 		health_label.text = "Здоровье: " + str(player_data["health"])
+	
+	# ✅ НОВОЕ: Обновление УА
+	var ua_label = ui_layer.get_node_or_null("UALabel")
+	if ua_label and police_system:
+		var ua = police_system.ua_level
+		var ua_color = police_system.get_ua_color()
+		ua_label.text = "🚔 УА: %d (%s)" % [ua, police_system.get_ua_status()]
+		ua_label.add_theme_color_override("font_color", ua_color)
 
 func show_message(text: String, parent_node: Node):
 	var message = Label.new()

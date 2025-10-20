@@ -1,402 +1,399 @@
-# police_system.gd (ПОЛИЦИЯ + УА + ФСБ)
-# Autoload: /root/PoliceSystem
+# police_system.gd (Полиция и Уровень Агрессии)
 extends Node
 
 signal ua_changed(new_ua: int)
-signal police_raid_started(location: String)
-signal police_encounter(can_surrender: bool)
+signal police_raid_started(district: String)
+signal player_arrested()
 
-# === УРОВЕНЬ АГРЕССИИ (УА) ===
-var ua_level: int = 0  # 0-100
-var max_ua: int = 100
+var ua_level: int = 0  # Уровень Агрессии (0-100)
+var raids_active: bool = false
 
-# === СТАТИСТИКА ===
-var crimes_committed: int = 0
-var bribes_given: int = 0
-var surrenders: int = 0
-
-# === РЕЙДЫ ===
-var raid_timer: Timer = null
-var raid_active: bool = false
+# История преступлений (для расчёта наказания)
+var crime_history = {
+	"theft": 0,        # Кражи
+	"robbery": 0,      # Ограбления
+	"assault": 0,      # Нападения
+	"murder": 0,       # Убийства
+	"break_in": 0      # Взломы
+}
 
 func _ready():
 	print("🚔 Система полиции загружена (УА: %d)" % ua_level)
-	setup_raid_timer()
 
-# === ТАЙМЕР РЕЙДОВ ===
-func setup_raid_timer():
-	raid_timer = Timer.new()
-	raid_timer.wait_time = 60.0  # Рейды раз в минуту при УА=100
-	raid_timer.one_shot = false
-	raid_timer.autostart = false
-	raid_timer.timeout.connect(_on_raid_check)
-	add_child(raid_timer)
+# ========== УВЕЛИЧЕНИЕ УА ==========
 
-# === ДОБАВЛЕНИЕ УА ===
 func add_ua(amount: int, reason: String = ""):
 	var old_ua = ua_level
-	ua_level += amount
-	ua_level = clamp(ua_level, 0, max_ua)
+	ua_level = clamp(ua_level + amount, 0, 100)
 	
-	if reason != "":
-		print("🚔 УА +%d (%s): %d → %d" % [amount, reason, old_ua, ua_level])
+	if ua_level != old_ua:
+		print("🚔 УА: %d → %d (%s)" % [old_ua, ua_level, reason])
+		ua_changed.emit(ua_level)
+		
+		# При достижении 100 УА начинаются рейды
+		if ua_level >= 100 and not raids_active:
+			start_raids()
+
+func reduce_ua(amount: int, reason: String = ""):
+	var old_ua = ua_level
+	ua_level = clamp(ua_level - amount, 0, 100)
 	
-	ua_changed.emit(ua_level)
+	if ua_level != old_ua:
+		print("🚔 УА: %d → %d (%s)" % [old_ua, ua_level, reason])
+		ua_changed.emit(ua_level)
+		
+		# Если УА упал ниже 100, рейды прекращаются
+		if ua_level < 100 and raids_active:
+			stop_raids()
+
+# ========== РЕГИСТРАЦИЯ ПРЕСТУПЛЕНИЙ ==========
+
+func register_crime(crime_type: String, severity: int):
+	if crime_history.has(crime_type):
+		crime_history[crime_type] += 1
 	
-	# Включаем рейды при УА=100
-	if ua_level >= 100 and not raid_timer.is_stopped():
-		raid_timer.start()
-		print("⚠️ ПОЛИЦИЯ НАЧАЛА РЕЙДЫ!")
-	elif ua_level < 100 and not raid_timer.is_stopped():
-		raid_timer.stop()
+	add_ua(severity, crime_type)
 
-# === СНИЖЕНИЕ УА ===
-func reduce_ua(amount: int):
-	ua_level -= amount
-	ua_level = max(0, ua_level)
-	ua_changed.emit(ua_level)
-	print("🚔 УА снижен на %d → %d" % [amount, ua_level])
+# Примеры:
+func on_stealth_detected():
+	add_ua(randi_range(1, 3), "подкрадывание обнаружено")
 
-# === ПРЕСТУПЛЕНИЯ ===
-func report_crime(crime_type: String):
-	crimes_committed += 1
+func on_alarm_triggered():
+	add_ua(randi_range(10, 25), "сработала сигнализация")
+
+func on_body_looted():
+	add_ua(randi_range(10, 20), "обыск тел")
+
+func on_theft(value: int):
+	register_crime("theft", min(5 + value / 100, 15))
+
+func on_robbery(location: String):
+	register_crime("robbery", randi_range(15, 30))
+
+func on_assault():
+	register_crime("assault", randi_range(5, 15))
+
+func on_murder():
+	register_crime("murder", randi_range(20, 40))
+
+func on_break_in():
+	register_crime("break_in", randi_range(10, 20))
+
+# ========== РЕЙДЫ ==========
+
+func start_raids():
+	raids_active = true
+	print("🚨 ПОЛИЦИЯ НАЧАЛА РЕЙДЫ!")
 	
-	match crime_type:
-		"stealth":
-			add_ua(randi_range(1, 3), "подкрадывание")
-		"alarm":
-			add_ua(randi_range(10, 25), "срабатывание сигнализации")
-		"theft":
-			add_ua(randi_range(5, 15), "кража")
-		"assault":
-			add_ua(randi_range(15, 30), "нападение")
-		"murder":
-			add_ua(randi_range(30, 50), "убийство")
-		"robbery":
-			add_ua(randi_range(20, 40), "ограбление")
+	var districts_system = get_node_or_null("/root/DistrictsSystem")
+	if districts_system:
+		# Рейд в случайный контролируемый район
+		var player_districts = []
+		for district_name in districts_system.districts:
+			var district = districts_system.districts[district_name]
+			if district.get("owner", "") == "Игрок":
+				player_districts.append(district_name)
+		
+		if player_districts.size() > 0:
+			var target = player_districts[randi() % player_districts.size()]
+			police_raid_started.emit(target)
 
-# === ВЗЯТКА В ФСБ ===
-func bribe_fsb(amount: int) -> bool:
-	var ua_reduction = int(amount / 100.0)  # 1 УА за 100 руб.
-	ua_reduction = min(ua_reduction, ua_level)
-	
-	if ua_reduction > 0:
-		reduce_ua(ua_reduction)
-		bribes_given += 1
-		print("💵 Взятка ФСБ: %d руб. → -%d УА" % [amount, ua_reduction])
-		return true
-	return false
+func stop_raids():
+	raids_active = false
+	print("🚔 Рейды полиции прекращены")
 
-# === ВСТРЕЧА С ПОЛИЦИЕЙ ===
-func encounter_police(main_node: Node, player_data: Dictionary, crime_severity: int = 0) -> void:
-	print("🚔 Встреча с полицией!")
-	police_encounter.emit(true)
-	show_police_encounter(main_node, player_data, crime_severity)
+# ========== ВЗАИМОДЕЙСТВИЕ С ПОЛИЦИЕЙ ==========
 
-# === МЕНЮ ВСТРЕЧИ С ПОЛИЦИЕЙ ===
-func show_police_encounter(main_node: Node, player_data: Dictionary, crime_severity: int):
-	var police_menu = CanvasLayer.new()
-	police_menu.name = "PoliceEncounter"
-	police_menu.layer = 210
-	main_node.add_child(police_menu)
+func show_surrender_menu(main_node: Node):
+	var surrender_menu = CanvasLayer.new()
+	surrender_menu.name = "SurrenderMenu"
+	surrender_menu.layer = 150
+	main_node.add_child(surrender_menu)
 	
 	var overlay = ColorRect.new()
 	overlay.size = Vector2(720, 1280)
 	overlay.color = Color(0, 0, 0, 0.8)
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
-	police_menu.add_child(overlay)
+	surrender_menu.add_child(overlay)
 	
 	var bg = ColorRect.new()
-	bg.size = Vector2(600, 500)
-	bg.position = Vector2(60, 390)
-	bg.color = Color(0.1, 0.1, 0.2, 0.98)
-	police_menu.add_child(bg)
+	bg.size = Vector2(500, 400)
+	bg.position = Vector2(110, 440)
+	bg.color = Color(0.1, 0.1, 0.15, 0.98)
+	surrender_menu.add_child(bg)
 	
 	var title = Label.new()
 	title.text = "🚔 ПОЛИЦИЯ!"
-	title.position = Vector2(260, 410)
-	title.add_theme_font_size_override("font_size", 32)
+	title.position = Vector2(280, 460)
+	title.add_theme_font_size_override("font_size", 28)
 	title.add_theme_color_override("font_color", Color(0.3, 0.5, 1.0, 1.0))
-	police_menu.add_child(title)
+	surrender_menu.add_child(title)
 	
-	var message = Label.new()
-	message.text = "Вас остановили сотрудники полиции"
-	message.position = Vector2(140, 470)
-	message.add_theme_font_size_override("font_size", 18)
-	message.add_theme_color_override("font_color", Color.WHITE)
-	police_menu.add_child(message)
+	var info = Label.new()
+	info.text = "Вас окружили! Сдаться или драться?"
+	info.position = Vector2(180, 520)
+	info.add_theme_font_size_override("font_size", 18)
+	info.add_theme_color_override("font_color", Color.WHITE)
+	surrender_menu.add_child(info)
 	
 	var ua_label = Label.new()
-	ua_label.text = "⚠️ Уровень Агрессии: %d/100" % ua_level
-	ua_label.position = Vector2(220, 510)
+	ua_label.text = "Уровень Агрессии: %d/100" % ua_level
+	ua_label.position = Vector2(230, 560)
 	ua_label.add_theme_font_size_override("font_size", 16)
 	ua_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5, 1.0))
-	police_menu.add_child(ua_label)
+	surrender_menu.add_child(ua_label)
 	
 	# Кнопка "Сдаться"
 	var surrender_btn = Button.new()
-	surrender_btn.custom_minimum_size = Vector2(540, 60)
-	surrender_btn.position = Vector2(90, 570)
-	surrender_btn.text = "🙋 СДАТЬСЯ"
+	surrender_btn.custom_minimum_size = Vector2(460, 60)
+	surrender_btn.position = Vector2(130, 620)
+	surrender_btn.text = "🙌 СДАТЬСЯ"
 	
 	var style_surrender = StyleBoxFlat.new()
-	style_surrender.bg_color = Color(0.2, 0.4, 0.6, 1.0)
+	style_surrender.bg_color = Color(0.3, 0.5, 0.7, 1.0)
 	surrender_btn.add_theme_stylebox_override("normal", style_surrender)
-	surrender_btn.add_theme_font_size_override("font_size", 22)
+	surrender_btn.add_theme_font_size_override("font_size", 20)
 	
 	surrender_btn.pressed.connect(func():
-		handle_surrender(main_node, player_data, crime_severity, police_menu)
+		surrender_menu.queue_free()
+		process_surrender(main_node)
 	)
-	police_menu.add_child(surrender_btn)
-	
-	# Кнопка "Бежать"
-	var flee_btn = Button.new()
-	flee_btn.custom_minimum_size = Vector2(540, 60)
-	flee_btn.position = Vector2(90, 650)
-	flee_btn.text = "🏃 БЕЖАТЬ"
-	
-	var style_flee = StyleBoxFlat.new()
-	style_flee.bg_color = Color(0.6, 0.4, 0.2, 1.0)
-	flee_btn.add_theme_stylebox_override("normal", style_flee)
-	flee_btn.add_theme_font_size_override("font_size", 22)
-	
-	flee_btn.pressed.connect(func():
-		handle_flee(main_node, player_data, police_menu)
-	)
-	police_menu.add_child(flee_btn)
+	surrender_menu.add_child(surrender_btn)
 	
 	# Кнопка "Драться"
 	var fight_btn = Button.new()
-	fight_btn.custom_minimum_size = Vector2(540, 60)
-	fight_btn.position = Vector2(90, 730)
-	fight_btn.text = "⚔️ ДРАТЬСЯ"
+	fight_btn.custom_minimum_size = Vector2(460, 60)
+	fight_btn.position = Vector2(130, 700)
+	fight_btn.text = "⚔️ ДРАТЬСЯ С ПОЛИЦИЕЙ"
 	
 	var style_fight = StyleBoxFlat.new()
-	style_fight.bg_color = Color(0.6, 0.2, 0.2, 1.0)
+	style_fight.bg_color = Color(0.7, 0.2, 0.2, 1.0)
 	fight_btn.add_theme_stylebox_override("normal", style_fight)
-	fight_btn.add_theme_font_size_override("font_size", 22)
+	fight_btn.add_theme_font_size_override("font_size", 20)
 	
 	fight_btn.pressed.connect(func():
-		handle_fight(main_node, police_menu)
+		surrender_menu.queue_free()
+		start_police_fight(main_node)
 	)
-	police_menu.add_child(fight_btn)
+	surrender_menu.add_child(fight_btn)
 	
-	# Предупреждение
-	var warning = Label.new()
-	warning.text = "⚠️ Сопротивление полиции увеличит УА!"
-	warning.position = Vector2(150, 820)
-	warning.add_theme_font_size_override("font_size", 14)
-	warning.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5, 1.0))
-	police_menu.add_child(warning)
+	# Кнопка "Убежать"
+	var run_btn = Button.new()
+	run_btn.custom_minimum_size = Vector2(460, 60)
+	run_btn.position = Vector2(130, 780)
+	run_btn.text = "🏃 ПОПЫТАТЬСЯ УБЕЖАТЬ"
+	
+	var style_run = StyleBoxFlat.new()
+	style_run.bg_color = Color(0.5, 0.5, 0.2, 1.0)
+	run_btn.add_theme_stylebox_override("normal", style_run)
+	run_btn.add_theme_font_size_override("font_size", 20)
+	
+	run_btn.pressed.connect(func():
+		surrender_menu.queue_free()
+		attempt_escape(main_node)
+	)
+	surrender_menu.add_child(run_btn)
 
-# === СДАТЬСЯ ===
-func handle_surrender(main_node: Node, player_data: Dictionary, crime_severity: int, police_menu: CanvasLayer):
-	surrenders += 1
+func process_surrender(main_node: Node):
+	var player_stats = get_node_or_null("/root/PlayerStats")
 	
-	# Проверка: УА + тяжесть + харизма + авторитет
-	var player_stats = get_node("/root/PlayerStats")
-	var charisma = player_stats.get_stat("Харизма") if player_stats else 0
-	var reputation = player_data.get("reputation", 0)
+	# Расчёт исхода
+	var base_chance = 0.3
 	
-	var check_value = ua_level + crime_severity - charisma - (reputation / 10)
+	# Бонус от харизмы
+	if player_stats:
+		var cha = player_stats.get_stat("CHA")
+		base_chance += cha * 0.05
 	
-	var outcome = ""
-	var fine = 0
+	# Штраф от УА
+	base_chance -= (ua_level / 100.0) * 0.3
 	
-	if check_value < 30:
-		outcome = "Отпустили с предупреждением"
-		reduce_ua(5)
-	elif check_value < 60:
-		fine = randi_range(100, 500)
-		outcome = "Штраф: %d руб." % fine
-		player_data["balance"] -= fine
-		reduce_ua(10)
+	# Штраф от тяжести преступлений
+	var crime_severity = crime_history.get("murder", 0) * 10 + crime_history.get("robbery", 0) * 5
+	base_chance -= crime_severity * 0.01
+	
+	var roll = randf()
+	
+	if roll < base_chance:
+		# Отпустили
+		main_node.show_message("🚔 Полиция отпустила вас с предупреждением")
+		reduce_ua(20, "сдался полиции")
+	elif roll < base_chance + 0.3:
+		# Штраф
+		var fine = randi_range(100, 500) + ua_level * 5
+		main_node.player_data["balance"] -= fine
+		main_node.show_message("🚔 Штраф: " + str(fine) + " руб.")
+		reduce_ua(30, "заплатил штраф")
+		main_node.update_ui()
 	else:
-		outcome = "Арест! Потеряно 3 дня"
-		var time_system = get_node_or_null("/root/TimeSystem")
-		if time_system:
-			time_system.add_minutes(3 * 24 * 60)
-		player_data["balance"] -= randi_range(500, 1000)
-		reduce_ua(20)
+		# Арест
+		arrest_player(main_node)
+
+func arrest_player(main_node: Node):
+	var jail_time = randi_range(1, 3)
 	
-	police_menu.queue_free()
-	main_node.show_message("🚔 " + outcome)
+	main_node.show_message("🚔 ВАС АРЕСТОВАЛИ НА %d ДНЯ!" % jail_time)
+	
+	# Штраф + потеря времени
+	var fine = randi_range(300, 1000)
+	main_node.player_data["balance"] = max(0, main_node.player_data["balance"] - fine)
+	
+	# Добавляем дни
+	var time_system = get_node_or_null("/root/TimeSystem")
+	if time_system:
+		for i in range(jail_time):
+			time_system.add_minutes(24 * 60)  # +1 день
+	
+	reduce_ua(50, "отсидел в тюрьме")
+	player_arrested.emit()
 	main_node.update_ui()
 
-# === БЕЖАТЬ ===
-func handle_flee(main_node: Node, player_data: Dictionary, police_menu: CanvasLayer):
-	var player_stats = get_node("/root/PlayerStats")
-	var agi = player_stats.get_stat("AGI") if player_stats else 4
+func start_police_fight(main_node: Node):
+	main_node.show_message("⚔️ Вступаете в бой с полицией!")
 	
-	var flee_chance = 0.3 + agi * 0.04
+	# Значительное увеличение УА
+	add_ua(30, "напал на полицию")
 	
-	if randf() < flee_chance:
-		add_ua(randi_range(10, 20), "бегство от полиции")
-		police_menu.queue_free()
-		main_node.show_message("🏃 Вы успешно сбежали! (+УА)")
-	else:
-		add_ua(randi_range(20, 30), "неудачное бегство")
-		police_menu.queue_free()
-		main_node.show_message("❌ Не удалось сбежать! Вас догнали!")
-		
-		# Принудительная сдача
-		await main_node.get_tree().create_timer(1.5).timeout
-		handle_surrender(main_node, player_data, 30, police_menu)
-
-# === ДРАТЬСЯ ===
-func handle_fight(main_node: Node, police_menu: CanvasLayer):
-	add_ua(randi_range(40, 60), "сопротивление полиции")
-	police_menu.queue_free()
-	
-	main_node.show_message("⚔️ Вступили в бой с полицией! (+40-60 УА)")
-	
-	await main_node.get_tree().create_timer(1.5).timeout
-	
-	var battle_manager = get_node_or_null("/root/BattleManager")
+	var battle_manager = main_node.get_node_or_null("BattleManager")
 	if battle_manager:
-		main_node.start_battle("guard")
+		battle_manager.start_battle(main_node, "guard")  # Полиция = охранники
 
-# === РЕЙД ПОЛИЦИИ ===
-func _on_raid_check():
-	if ua_level < 100:
-		return
+func attempt_escape(main_node: Node):
+	var player_stats = get_node_or_null("/root/PlayerStats")
 	
-	if raid_active:
-		return
+	var escape_chance = 0.3
+	if player_stats:
+		var agi = player_stats.get_stat("AGI")
+		var stealth = player_stats.get_stat("STEALTH")
+		escape_chance += (agi + stealth) * 0.03
 	
-	# Шанс рейда 20%
-	if randf() < 0.2:
-		start_raid()
+	if randf() < escape_chance:
+		main_node.show_message("🏃 Вам удалось убежать!")
+		add_ua(10, "убежал от полиции")
+	else:
+		main_node.show_message("🚔 Не удалось! Вас поймали!")
+		add_ua(15, "попытка побега")
+		arrest_player(main_node)
 
-func start_raid():
-	raid_active = true
-	var districts_system = get_node_or_null("/root/DistrictsSystem")
-	
-	if not districts_system:
-		return
-	
-	# Выбираем случайный контролируемый район
-	var controlled_districts = []
-	for district_name in districts_system.districts:
-		var district = districts_system.districts[district_name]
-		if district.get("owner", "") == "Игрок":
-			controlled_districts.append(district_name)
-	
-	if controlled_districts.is_empty():
-		raid_active = false
-		return
-	
-	var target_district = controlled_districts[randi() % controlled_districts.size()]
-	
-	print("🚨 РЕЙД ПОЛИЦИИ В РАЙОНЕ: " + target_district)
-	police_raid_started.emit(target_district)
-	
-	# Потеря влияния
-	districts_system.add_influence(target_district, "Игрок", -randi_range(10, 20))
-	
-	raid_active = false
+# ========== ВЗАИМОДЕЙСТВИЕ С ФСБ ==========
 
-# === МЕНЮ ФСБ ===
-func show_fsb_menu(main_node: Node, player_data: Dictionary):
+func show_fsb_bribe_menu(main_node: Node):
 	var fsb_menu = CanvasLayer.new()
 	fsb_menu.name = "FSBMenu"
-	fsb_menu.layer = 200
+	fsb_menu.layer = 150
 	main_node.add_child(fsb_menu)
 	
 	var overlay = ColorRect.new()
 	overlay.size = Vector2(720, 1280)
-	overlay.color = Color(0, 0, 0, 0.7)
+	overlay.color = Color(0, 0, 0, 0.8)
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	fsb_menu.add_child(overlay)
 	
 	var bg = ColorRect.new()
-	bg.size = Vector2(700, 800)
-	bg.position = Vector2(10, 240)
+	bg.size = Vector2(600, 500)
+	bg.position = Vector2(60, 390)
 	bg.color = Color(0.05, 0.05, 0.1, 0.98)
 	fsb_menu.add_child(bg)
 	
 	var title = Label.new()
 	title.text = "🏛️ ЗДАНИЕ ФСБ"
-	title.position = Vector2(220, 260)
-	title.add_theme_font_size_override("font_size", 32)
-	title.add_theme_color_override("font_color", Color(0.5, 0.5, 1.0, 1.0))
+	title.position = Vector2(240, 410)
+	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_color_override("font_color", Color(0.8, 0.8, 1.0, 1.0))
 	fsb_menu.add_child(title)
 	
 	var ua_info = Label.new()
 	ua_info.text = "Текущий УА: %d/100" % ua_level
-	ua_info.position = Vector2(260, 320)
+	ua_info.position = Vector2(80, 470)
 	ua_info.add_theme_font_size_override("font_size", 20)
 	ua_info.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5, 1.0))
 	fsb_menu.add_child(ua_info)
 	
 	var hint = Label.new()
-	hint.text = "💵 1000 руб. = -10 УА"
-	hint.position = Vector2(260, 360)
-	hint.add_theme_font_size_override("font_size", 16)
+	hint.text = "Можно 'подарить' деньги для снижения УА"
+	hint.position = Vector2(130, 510)
+	hint.add_theme_font_size_override("font_size", 14)
 	hint.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7, 1.0))
 	fsb_menu.add_child(hint)
 	
 	# Варианты взяток
 	var bribes = [
-		{"amount": 500, "ua_reduction": 5},
-		{"amount": 1000, "ua_reduction": 10},
-		{"amount": 5000, "ua_reduction": 50},
-		{"amount": 10000, "ua_reduction": 100}
+		{"amount": 500, "ua_reduce": 10},
+		{"amount": 1000, "ua_reduce": 25},
+		{"amount": 2500, "ua_reduce": 50},
+		{"amount": 5000, "ua_reduce": 100}
 	]
 	
-	var y_pos = 420
+	var y_pos = 560
 	
 	for bribe in bribes:
-		var bribe_btn = Button.new()
-		bribe_btn.custom_minimum_size = Vector2(680, 60)
-		bribe_btn.position = Vector2(20, y_pos)
-		bribe_btn.text = "💵 Дать %d руб. (-%d УА)" % [bribe["amount"], bribe["ua_reduction"]]
-		
-		var can_afford = player_data["balance"] >= bribe["amount"]
-		bribe_btn.disabled = not can_afford
+		var btn = Button.new()
+		btn.custom_minimum_size = Vector2(560, 60)
+		btn.position = Vector2(80, y_pos)
+		btn.text = "💰 %d руб. → -%d УА" % [bribe["amount"], bribe["ua_reduce"]]
 		
 		var style = StyleBoxFlat.new()
-		if can_afford:
-			style.bg_color = Color(0.2, 0.4, 0.2, 1.0)
-		else:
-			style.bg_color = Color(0.3, 0.3, 0.3, 1.0)
-		bribe_btn.add_theme_stylebox_override("normal", style)
-		bribe_btn.add_theme_font_size_override("font_size", 20)
+		style.bg_color = Color(0.2, 0.3, 0.2, 1.0)
+		btn.add_theme_stylebox_override("normal", style)
+		btn.add_theme_font_size_override("font_size", 18)
 		
-		var bribe_amount = bribe["amount"]
-		bribe_btn.pressed.connect(func():
-			if player_data["balance"] >= bribe_amount:
-				player_data["balance"] -= bribe_amount
-				bribe_fsb(bribe_amount)
-				main_node.show_message("💵 Взятка принята! УА снижен")
+		var amount = bribe["amount"]
+		var reduce = bribe["ua_reduce"]
+		
+		btn.pressed.connect(func():
+			if main_node.player_data["balance"] >= amount:
+				main_node.player_data["balance"] -= amount
+				reduce_ua(reduce, "взятка в ФСБ")
+				main_node.show_message("💸 Взятка принята. УА снижен на %d" % reduce)
 				main_node.update_ui()
 				fsb_menu.queue_free()
+			else:
+				main_node.show_message("❌ Недостаточно денег!")
 		)
 		
-		fsb_menu.add_child(bribe_btn)
-		y_pos += 80
+		fsb_menu.add_child(btn)
+		y_pos += 70
 	
 	var close_btn = Button.new()
-	close_btn.custom_minimum_size = Vector2(680, 60)
-	close_btn.position = Vector2(20, 960)
-	close_btn.text = "УЙТИ"
+	close_btn.custom_minimum_size = Vector2(560, 50)
+	close_btn.position = Vector2(80, 840)
+	close_btn.text = "ЗАКРЫТЬ"
 	
 	var style_close = StyleBoxFlat.new()
 	style_close.bg_color = Color(0.5, 0.1, 0.1, 1.0)
 	close_btn.add_theme_stylebox_override("normal", style_close)
-	close_btn.add_theme_font_size_override("font_size", 22)
+	close_btn.add_theme_font_size_override("font_size", 18)
 	close_btn.pressed.connect(func(): fsb_menu.queue_free())
 	
 	fsb_menu.add_child(close_btn)
 
-# === ПОЛУЧИТЬ ДАННЫЕ ===
-func get_ua() -> int:
-	return ua_level
+# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 
-func get_stats() -> Dictionary:
+func get_ua_color() -> Color:
+	if ua_level < 30:
+		return Color(0.3, 1.0, 0.3, 1.0)  # Зелёный
+	elif ua_level < 70:
+		return Color(1.0, 1.0, 0.3, 1.0)  # Жёлтый
+	else:
+		return Color(1.0, 0.3, 0.3, 1.0)  # Красный
+
+func get_ua_status() -> String:
+	if ua_level < 30:
+		return "Низкий"
+	elif ua_level < 70:
+		return "Средний"
+	else:
+		return "ВЫСОКИЙ!"
+
+func get_save_data() -> Dictionary:
 	return {
-		"ua": ua_level,
-		"crimes": crimes_committed,
-		"bribes": bribes_given,
-		"surrenders": surrenders
+		"ua_level": ua_level,
+		"raids_active": raids_active,
+		"crime_history": crime_history.duplicate()
 	}
+
+func load_save_data(data: Dictionary):
+	ua_level = data.get("ua_level", 0)
+	raids_active = data.get("raids_active", false)
+	crime_history = data.get("crime_history", crime_history).duplicate()
+	ua_changed.emit(ua_level)

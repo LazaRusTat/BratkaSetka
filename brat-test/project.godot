@@ -31,6 +31,7 @@ DistrictsSystem="*res://scripts/systems/districts_system.gd"
 SimpleJobs="*res://scripts/systems/simple_jobs.gd"
 HospitalSystem="*res://scripts/systems/hospital_system.gd"
 TimeSystem="*res://scripts/systems/time_system.gd"
+PoliceSystem="*res://scripts/systems/police_system.gd"
 
 [display]
 

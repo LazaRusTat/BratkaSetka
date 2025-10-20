@@ -230,10 +230,84 @@ func get_all_stats() -> Dictionary:
 func get_stats_text() -> String:
 	var text = "═══ ХАРАКТЕРИСТИКИ ═══\n"
 	text += "💪 Сила: %d | 🤸 Ловкость: %d | 🎯 Меткость: %d\n" % [get_stat("STR"), get_stat("AGI"), get_stat("ACC")]
-	text += "🍀 Удача: %d | 🧠 Интеллект: %d | 🗣 Харизма: %d\n" % [get_stat("LCK"), get_stat("INT"), get_stat("Харизма")]
+	text += "🍀 Удача: %d | 🧠 Интеллект: %d | 💬 Харизма: %d\n" % [get_stat("LCK"), get_stat("INT"), get_stat("CHA")]
 	text += "💻 Электроника: %d | 🔓 Взлом: %d | 🚗 Вождение: %d | 🥷 Скрытность: %d\n" % [get_stat("ELEC"), get_stat("PICK"), get_stat("DRV"), get_stat("STEALTH")]
 	text += "\n═══ БОЕВЫЕ ПАРАМЕТРЫ ═══\n"
 	text += "⚔ Урон ближний: %d | 🔫 Урон дальний: %d\n" % [calculate_melee_damage(), calculate_ranged_damage()]
 	text += "🛡 Защита: %d | 🌀 Уклонение: %d%%\n" % [equipment_bonuses["defense"], calculate_evasion()]
 	text += "🏃 Скорость: %.2f tiles/sec\n" % calculate_move_speed()
 	return text
+	# Патч для player_stats.gd
+# 
+# ИЗМЕНЕНИЯ:
+# 1. CHA → Харизма (вместо "Красноречие")
+# 2. Добавлены навыки прокачки от действий
+#
+# ПРИМЕНИТЬ:
+# Замените в файле brat-test1/scripts/systems/player_stats.gd
+# строку 8:
+#   "CHA": 2,      # Красноречие
+# на:
+#   "CHA": 2,      # Харизма
+#
+# И строку ~180 (в get_stats_text):
+#   "🗣 Красноречие: %d"
+# на:
+#   "💬 Харизма: %d"
+#
+# НОВЫЕ ФУНКЦИИ ДЛЯ ДЕЙСТВИЙ:
+
+# === ПРОКАЧКА ОТ ДЕЙСТВИЙ ===
+
+# Ограбление (вызывать после успешного ограбления)
+func on_robbery_success(value: int):
+	add_stat_xp("STEALTH", 10 + value / 100)
+	add_stat_xp("LCK", 5)
+	add_stat_xp("STR", 3)
+
+# Взлом замка
+func on_lockpick_success():
+	add_stat_xp("PICK", 12)
+	add_stat_xp("INT", 3)
+
+# Взлом электроники
+func on_hack_success():
+	add_stat_xp("ELEC", 15)
+	add_stat_xp("INT", 5)
+
+# Угон автомобиля
+func on_car_theft_success():
+	add_stat_xp("ELEC", 8)
+	add_stat_xp("DRV", 10)
+	add_stat_xp("STEALTH", 5)
+
+# Подкрадывание (незамеченное)
+func on_sneak_success():
+	add_stat_xp("STEALTH", 8)
+	add_stat_xp("AGI", 2)
+
+# Подкрадывание (обнаружено)
+func on_sneak_detected():
+	add_stat_xp("STEALTH", 2)
+
+# Переговоры с NPC
+func on_negotiation_success():
+	add_stat_xp("CHA", 10)
+	add_stat_xp("INT", 3)
+
+func on_negotiation_fail():
+	add_stat_xp("CHA", 3)
+
+# Вождение (за каждые 100 метров)
+func on_driving_distance(meters: float):
+	var xp = int(meters / 100.0)
+	if xp > 0:
+		add_stat_xp("DRV", xp)
+
+# Использование силы (перенос тяжестей, драка)
+func on_strength_action():
+	add_stat_xp("STR", 5)
+
+# Акробатика (уклонение, прыжки)
+func on_agility_action():
+	add_stat_xp("AGI", 5)

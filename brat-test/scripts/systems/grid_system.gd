@@ -1,11 +1,11 @@
-# grid_system.gd (ИСПРАВЛЕННАЯ - полное покрытие карты)
+# grid_system.gd (ИСПРАВЛЕННЫЙ - сетка ПОД всеми UI)
 extends CanvasLayer
 
 signal square_clicked(square_id: String)
 
 var square_size: int = 60
 var grid_width: int = 12
-var grid_height: int = 18  # Увеличил высоту для полного покрытия
+var grid_height: int = 16
 
 var grid_squares = {}
 
@@ -25,7 +25,7 @@ var toggle_button: Button
 var grid_visible: bool = true
 
 func _ready():
-	layer = 1  # ✅ ТОЛЬКО над картой (0), ПОД всем UI (2+)
+	layer = 1  # ✅ КРИТИЧНО: слой 1 - ТОЛЬКО над картой (0), ПОД всеми UI (2+)
 	
 	draw_control = Control.new()
 	draw_control.position = Vector2(0, 0)
@@ -41,7 +41,7 @@ func _ready():
 	
 	print("==================================================")
 	print("🗺️ СЕТКА: Layer %d (над картой=0, под UI=2+)" % layer)
-	print("   Grid: %dx%d (полное покрытие карты)" % [grid_width, grid_height])
+	print("   Grid: %dx%d" % [grid_width, grid_height])
 	print("==================================================")
 
 func initialize_grid():
@@ -71,7 +71,7 @@ func assign_district(x: int, y: int) -> String:
 		return "Центр"
 	if x >= 8 and y >= 6 and y <= 10:
 		return "Заречье"
-	if y >= 14:  # Увеличил окраину
+	if y >= 12:
 		return "Окраина"
 	if x <= 3 and y >= 8:
 		return "Промзона"
@@ -82,7 +82,8 @@ func _draw_grid():
 		return
 	
 	var start_y = 120
-	var end_y = start_y + (grid_height * square_size)  # Динамическая высота
+	var end_y = 1180
+	var total_width = grid_width * square_size
 	
 	# Закрашенные квадраты
 	for square_id in grid_squares:
@@ -102,10 +103,10 @@ func _draw_grid():
 	
 	for y in range(grid_height + 1):
 		var y_pos = start_y + y * square_size
-		if y_pos > 1280:  # Максимальная высота экрана
+		if y_pos > end_y:
 			break
 		var start = Vector2(0, y_pos)
-		var end = Vector2(grid_width * square_size, y_pos)
+		var end = Vector2(total_width, y_pos)
 		draw_control.draw_line(start, end, line_color, line_width)
 	
 	# Выделение
@@ -130,22 +131,27 @@ func _draw_grid():
 			draw_control.draw_rect(Rect2(building_pos, Vector2(24, 24)), Color.ORANGE, false, 3.0)
 
 func get_square_at_position(pos: Vector2) -> String:
-	# Проверяем что клик в пределах карты (исключаем UI зоны)
-	if pos.y < 120 or pos.y > 1200:  # Верхняя панель и слишком низко
-		return ""
+	print("🎯 КЛИК: " + str(pos))
 	
-	if pos.x < 0 or pos.x > grid_width * square_size:
+	if pos.y < 120:
+		print("   ❌ Верхняя панель")
+		return ""
+	if pos.y > 1180:
+		print("   ❌ Нижняя панель")
 		return ""
 	
 	var adjusted_y = pos.y - 120
 	var grid_x = int(pos.x / square_size)
 	var grid_y = int(adjusted_y / square_size)
 	
-	# Проверяем границы с увеличенной высотой
+	print("   Grid: x=%d, y=%d" % [grid_x, grid_y])
+	
 	if grid_x < 0 or grid_x >= grid_width or grid_y < 0 or grid_y >= grid_height:
+		print("   ❌ Вне границ!")
 		return ""
 	
 	var square_id = "%d_%d" % [grid_x, grid_y]
+	print("   ✅ Квадрат: " + square_id)
 	return square_id
 
 func get_square_center(square_id: String) -> Vector2:

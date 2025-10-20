@@ -1,4 +1,4 @@
-# main.gd (ИНТЕГРАЦИЯ ПОЛИЦИИ + МАССОВЫХ БОЁВ)
+# main.gd (ИСПРАВЛЕНО - ПРАВИЛЬНЫЕ КООРДИНАТЫ)
 extends Node2D
 
 # ========== МЕНЕДЖЕРЫ ==========
@@ -24,7 +24,6 @@ var districts_system
 var simple_jobs
 var hospital_system
 var time_system
-var police_system  # ✅ НОВОЕ
 
 # ========== ИГРОВЫЕ СИСТЕМЫ ==========
 var grid_system
@@ -45,7 +44,7 @@ var locations = {
 	"ПОРТ": {"position": Vector2(600, 450), "actions": ["Купить ПМ (500р)", "Купить отмычку (100р)", "Уйти"], "grid_square": "10_5"},
 	"УЛИЦА": {"position": Vector2(150, 1050), "actions": ["Прогуляться", "Встретить знакомого", "Посмотреть вокруг"], "grid_square": "2_13"},
 	"БОЛЬНИЦА": {"position": Vector2(400, 500), "actions": ["Лечиться", "Купить аптечку (100р)", "Уйти"], "grid_square": "6_6"},
-	"ФСБ": {"position": Vector2(700, 300), "actions": ["Дать взятку", "Уйти"], "grid_square": "11_3"}  # ✅ НОВОЕ
+	"ФСБ": {"position": Vector2(350, 800), "actions": ["Дать взятку", "Уйти"], "grid_square": "5_9"}
 }
 
 # ========== ДАННЫЕ ИГРОКА ==========
@@ -77,9 +76,18 @@ func _ready():
 	setup_grid_and_movement()
 	initialize_managers()
 	setup_game_systems()
+func setup_autosave():
+	if save_manager:
+		save_manager.enable_autosave(300.0)  # Каждые 5 минут
 	connect_signals()
+	setup_autosave()
 	show_intro_text()
-	print("✅ Игра готова! (Полиция + Массовые бои)")
+	print("✅ Игра готова! (ИСПРАВЛЕНЫ КООРДИНАТЫ КЛИКОВ)")
+func get_save_data() -> Dictionary:
+	return {
+		"player_data": player_data.duplicate(true),
+		"gang_members": gang_members.duplicate(true)
+	}
 
 func load_autoload_systems():
 	items_db = get_node("/root/ItemsDB")
@@ -94,7 +102,6 @@ func load_autoload_systems():
 	simple_jobs = get_node_or_null("/root/SimpleJobs")
 	hospital_system = get_node_or_null("/root/HospitalSystem")
 	time_system = get_node_or_null("/root/TimeSystem")
-	police_system = get_node_or_null("/root/PoliceSystem")  # ✅ НОВОЕ
 
 func setup_grid_and_movement():
 	var grid_script = load("res://scripts/systems/grid_system.gd")
@@ -181,11 +188,6 @@ func setup_game_systems():
 	
 	if districts_system:
 		districts_system.district_captured.connect(on_district_captured)
-	
-	# ✅ НОВОЕ: Подключение сигналов полиции
-	if police_system:
-		police_system.ua_changed.connect(_on_ua_changed)
-		police_system.police_raid_started.connect(_on_police_raid)
 
 func connect_signals():
 	if time_system:
@@ -194,43 +196,71 @@ func connect_signals():
 		time_system.time_of_day_changed.connect(_on_time_of_day_changed)
 
 # ========================================
-# ОБРАБОТКА ВВОДА
+# ОБРАБОТКА ВВОДА (ИСПРАВЛЕНО - VIEWPORT КООРДИНАТЫ!)
 # ========================================
+
 func _unhandled_input(event):
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT:
+			# ✅ КРИТИЧНО: Используем позицию ВНУТРИ viewport, а не глобальную!
 			var click_pos = get_viewport().get_mouse_position()
 			
+			print("🎯 CLICK: " + str(click_pos))
+			
+			# Блокируем если идёт бой
 			if get_node_or_null("BattleScene"):
+				print("⚠️ Бой идёт")
 				return
 			
+			# Проверяем открытые меню
 			if has_any_menu_open():
+				print("⚠️ Меню открыто")
 				return
 			
+			# Дополнительная проверка UI зон
 			if is_click_on_ui(click_pos):
+				print("⚠️ Клик на UI")
 				return
 			
+			print("✅ Клик на сетку разрешён")
+			
+			# Проверка клика по сетке
 			if grid_movement_manager:
 				grid_movement_manager.handle_grid_click(click_pos)
 			
+			# Отмечаем что обработали
 			get_viewport().set_input_as_handled()
 
+# ✅ Проверка клика на UI
 func is_click_on_ui(click_pos: Vector2) -> bool:
+	# Верхняя панель: y < 120
 	if click_pos.y < 120:
+		print("   → Верхняя панель")
 		return true
+	
+	# Нижняя панель: y >= 1180
 	if click_pos.y >= 1180:
+		print("   → Нижняя панель y=%d" % click_pos.y)
 		return true
+	
+	# Кнопка заработка
 	if click_pos.x >= 590 and click_pos.x <= 710 and click_pos.y >= 55 and click_pos.y <= 105:
+		print("   → Кнопка заработка")
 		return true
+	
+	# Кнопка сетки
 	if click_pos.x >= 540 and click_pos.x <= 590 and click_pos.y >= 55 and click_pos.y <= 85:
+		print("   → Кнопка сетки")
 		return true
+	
 	return false
 
+# ✅ Проверка открытых меню
 func has_any_menu_open() -> bool:
 	var menus = [
 		"BuildingMenu", "GangMenu", "InventoryMenu", "QuestMenu",
 		"DistrictsMenu", "MainMenuLayer", "MovementMenu",
-		"HospitalMenu", "JobsMenu", "SellMenu", "PoliceEncounter", "FSBMenu"  # ✅ НОВОЕ
+		"HospitalMenu", "JobsMenu", "SellMenu"
 	]
 	
 	for menu_name in menus:
@@ -242,16 +272,11 @@ func has_any_menu_open() -> bool:
 # ========================================
 # МЕНЮ ЛОКАЦИЙ
 # ========================================
+
 func show_location_menu(location_name: String):
 	current_location = location_name
 	menu_open = true
 	print("🏢 Открываем меню: " + location_name)
-	
-	# ✅ НОВОЕ: Обработка ФСБ
-	if location_name == "ФСБ":
-		if police_system:
-			police_system.show_fsb_menu(self, player_data)
-		return
 	
 	var old_menu = get_node_or_null("BuildingMenu")
 	if old_menu:
@@ -289,6 +314,7 @@ func close_location_menu():
 		layer.queue_free()
 	menu_open = false
 	current_location = null
+	print("✅ Меню локации закрыто")
 
 func on_location_clicked(location_name: String):
 	show_location_menu(location_name)
@@ -297,6 +323,7 @@ func on_location_clicked(location_name: String):
 # ========================================
 # КНОПКИ НИЖНЕЙ ПАНЕЛИ
 # ========================================
+
 func on_bottom_button_pressed(button_name: String):
 	match button_name:
 		"Банда":
@@ -311,37 +338,11 @@ func on_bottom_button_pressed(button_name: String):
 # ========================================
 # ОБНОВЛЕНИЕ UI
 # ========================================
+
 func update_ui():
 	ui_controller.update_ui()
 	clicker_system.player_data = player_data
 	update_time_ui()
-	update_police_ui()  # ✅ НОВОЕ
-
-func update_police_ui():
-	"""Обновление индикатора УА"""
-	if not police_system or not ui_controller:
-		return
-	
-	var ui_layer = ui_controller.get_ui_layer()
-	var ua_label = ui_layer.get_node_or_null("UALabel")
-	
-	if not ua_label:
-		ua_label = Label.new()
-		ua_label.name = "UALabel"
-		ua_label.position = Vector2(480, 85)
-		ua_label.add_theme_font_size_override("font_size", 14)
-		ui_layer.add_child(ua_label)
-	
-	var ua = police_system.get_ua()
-	ua_label.text = "🚔 УА: %d/100" % ua
-	
-	var ua_color = Color.GREEN
-	if ua >= 75:
-		ua_color = Color.RED
-	elif ua >= 50:
-		ua_color = Color.YELLOW
-	
-	ua_label.add_theme_color_override("font_color", ua_color)
 
 func update_time_ui():
 	if not ui_controller or not time_system:
@@ -357,6 +358,7 @@ func show_message(text: String):
 # ========================================
 # СОБЫТИЯ ВРЕМЕНИ
 # ========================================
+
 func _on_time_changed(_hour: int, _minute: int):
 	update_time_ui()
 
@@ -380,20 +382,9 @@ func _on_time_of_day_changed(period: String):
 		show_message(messages[period])
 
 # ========================================
-# СОБЫТИЯ ПОЛИЦИИ (НОВОЕ)
+# ОСТАЛЬНЫЕ ФУНКЦИИ (БЕЗ ИЗМЕНЕНИЙ)
 # ========================================
-func _on_ua_changed(new_ua: int):
-	update_police_ui()
-	
-	if new_ua >= 100:
-		show_message("⚠️ ПОЛИЦИЯ НАЧАЛА РЕЙДЫ!")
 
-func _on_police_raid(district_name: String):
-	show_message("🚨 РЕЙД ПОЛИЦИИ В РАЙОНЕ: " + district_name)
-
-# ========================================
-# ОСТАЛЬНЫЕ ФУНКЦИИ
-# ========================================
 func show_intro_text():
 	var intro_layer = CanvasLayer.new()
 	intro_layer.name = "IntroLayer"
@@ -481,7 +472,155 @@ func show_enemy_selection_menu():
 	battle_manager.show_enemy_selection_menu(self)
 
 func start_battle(enemy_type: String = "gopnik"):
-	battle_manager.start_battle(self, enemy_type)
+	print("⚔️ Запуск боя v3.0: " + enemy_type)
+	
+	var battle_script = load("res://scripts/systems/battle.gd")
+	if not battle_script:
+		show_message("❌ Система боёв не найдена!")
+		return
+	
+	var battle = battle_script.new()
+	battle.name = "BattleScene"
+	add_child(battle)
+	
+	# ✅ Передаём все данные включая банду
+	battle.setup(player_data, enemy_type, false, gang_members)
+	
+	battle.battle_ended.connect(func(victory):
+		# Обновляем HP после боя
+		if battle.player_team.size() > 0:
+			player_data["health"] = max(1, battle.player_team[0]["hp"])
+			
+			# Обновляем HP членов банды
+			for i in range(1, min(battle.player_team.size(), gang_members.size())):
+				if i < gang_members.size():
+					gang_members[i]["health"] = max(1, battle.player_team[i]["hp"])
+		
+		if victory:
+			show_message("✅ Победа в бою!")
+			
+			# Прокачка квестов
+			if quest_system:
+				quest_system.check_quest_progress("combat", {"victory": true})
+			
+			# Увеличение влияния
+			if districts_system and current_location:
+				var district = districts_system.get_district_by_building(current_location)
+				var influence_gain = 5 + battle.enemy_team.size()
+				districts_system.add_influence(district, "Игрок", influence_gain)
+		else:
+			show_message("💀 Поражение...")
+			
+			# Проверка смерти игрока
+			if player_data["health"] <= 0:
+				show_game_over()
+				return
+		
+		update_ui()
+		
+		# Автосохранение после боя
+		if save_manager:
+			save_manager.save_game(player_data, gang_members)
+	)
+
+# ДОБАВИТЬ функцию Game Over:
+func show_game_over():
+	var game_over_layer = CanvasLayer.new()
+	game_over_layer.name = "GameOverLayer"
+	game_over_layer.layer = 250
+	add_child(game_over_layer)
+	
+	var overlay = ColorRect.new()
+	overlay.size = Vector2(720, 1280)
+	overlay.color = Color(0, 0, 0, 0.9)
+	game_over_layer.add_child(overlay)
+	
+	var title = Label.new()
+	title.text = "💀 КОНЕЦ ИГРЫ 💀"
+	title.position = Vector2(200, 400)
+	title.add_theme_font_size_override("font_size", 42)
+	title.add_theme_color_override("font_color", Color(1.0, 0.2, 0.2, 1.0))
+	game_over_layer.add_child(title)
+	
+	var subtitle = Label.new()
+	subtitle.text = "Твоя история закончилась..."
+	subtitle.position = Vector2(220, 480)
+	subtitle.add_theme_font_size_override("font_size", 20)
+	subtitle.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8, 1.0))
+	game_over_layer.add_child(subtitle)
+	
+	var stats = Label.new()
+	stats.text = "Репутация: %d | Заработано: %d руб." % [
+		player_data.get("reputation", 0),
+		player_data.get("balance", 0)
+	]
+	stats.position = Vector2(180, 540)
+	stats.add_theme_font_size_override("font_size", 18)
+	stats.add_theme_color_override("font_color", Color(1.0, 1.0, 0.3, 1.0))
+	game_over_layer.add_child(stats)
+	
+	var restart_btn = Button.new()
+	restart_btn.custom_minimum_size = Vector2(300, 60)
+	restart_btn.position = Vector2(210, 640)
+	restart_btn.text = "НАЧАТЬ ЗАНОВО"
+	
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.7, 0.2, 0.2, 1.0)
+	restart_btn.add_theme_stylebox_override("normal", style)
+	restart_btn.add_theme_font_size_override("font_size", 22)
+	
+	restart_btn.pressed.connect(func():
+		# Удаляем сохранение и перезагружаем сцену
+		if save_manager:
+			save_manager.delete_save()
+		get_tree().reload_current_scene()
+	)
+	game_over_layer.add_child(restart_btn)
+	
+	var load_btn = Button.new()
+	load_btn.custom_minimum_size = Vector2(300, 60)
+	load_btn.position = Vector2(210, 720)
+	load_btn.text = "ЗАГРУЗИТЬ СОХРАНЕНИЕ"
+	
+	var style_load = StyleBoxFlat.new()
+	style_load.bg_color = Color(0.2, 0.5, 0.7, 1.0)
+	load_btn.add_theme_stylebox_override("normal", style_load)
+	load_btn.add_theme_font_size_override("font_size", 22)
+	
+	load_btn.pressed.connect(func():
+		if save_manager and save_manager.has_save():
+			var save_data = save_manager.load_game()
+			if not save_data.is_empty():
+				load_game_from_data(save_data)
+				game_over_layer.queue_free()
+				show_message("✅ Игра загружена!")
+		else:
+			show_message("⚠️ Нет сохранения!")
+	)
+	game_over_layer.add_child(load_btn)
+func load_game_from_data(save_data: Dictionary):
+	var player = save_data.get("player", {})
+	
+	player_data["balance"] = player.get("balance", 0)
+	player_data["health"] = player.get("health", 100)
+	player_data["reputation"] = player.get("reputation", 0)
+	player_data["completed_quests"] = player.get("completed_quests", [])
+	player_data["equipment"] = player.get("equipment", {}).duplicate(true)
+	player_data["inventory"] = player.get("inventory", []).duplicate(true)
+	player_data["pockets"] = player.get("pockets", [null, null, null]).duplicate(true)
+	player_data["current_square"] = player.get("current_square", "6_2")
+	
+	gang_members = save_data.get("gang", []).duplicate(true)
+	
+	# Обновляем позицию на карте
+	if grid_system:
+		grid_system.set_player_square(player_data["current_square"])
+	
+	# Пересчитываем бонусы
+	if player_stats:
+		player_stats.recalculate_equipment_bonuses(player_data["equipment"], items_db)
+	
+	update_ui()
 
 func show_districts_menu():
 	districts_menu_manager.show_districts_menu(self)
