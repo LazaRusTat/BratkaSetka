@@ -8,8 +8,7 @@ var location_name: String = ""
 var actions: Array = []
 
 func setup(p_location_name: String, p_actions: Array):
-	# ✅ Layer = 150 (выше передвижения=100, ниже боя=200)
-	layer = 150
+	layer = 20  # ✅ Выше сетки (1)
 	
 	location_name = p_location_name
 	actions = p_actions

@@ -1,4 +1,4 @@
-# main.gd (ИСПРАВЛЕНО - ПРАВИЛЬНЫЕ КООРДИНАТЫ)
+# main.gd (ИНТЕГРАЦИЯ ПОЛИЦИИ + МАССОВЫХ БОЁВ)
 extends Node2D
 
 # ========== МЕНЕДЖЕРЫ ==========
@@ -24,6 +24,7 @@ var districts_system
 var simple_jobs
 var hospital_system
 var time_system
+var police_system  # ✅ НОВОЕ
 
 # ========== ИГРОВЫЕ СИСТЕМЫ ==========
 var grid_system
@@ -43,7 +44,8 @@ var locations = {
 	"РЫНОК": {"position": Vector2(300, 850), "actions": ["Купить кожанку (200р)", "Продать вещь", "Узнать новости"], "grid_square": "5_10"},
 	"ПОРТ": {"position": Vector2(600, 450), "actions": ["Купить ПМ (500р)", "Купить отмычку (100р)", "Уйти"], "grid_square": "10_5"},
 	"УЛИЦА": {"position": Vector2(150, 1050), "actions": ["Прогуляться", "Встретить знакомого", "Посмотреть вокруг"], "grid_square": "2_13"},
-	"БОЛЬНИЦА": {"position": Vector2(400, 500), "actions": ["Лечиться", "Купить аптечку (100р)", "Уйти"], "grid_square": "6_6"}
+	"БОЛЬНИЦА": {"position": Vector2(400, 500), "actions": ["Лечиться", "Купить аптечку (100р)", "Уйти"], "grid_square": "6_6"},
+	"ФСБ": {"position": Vector2(700, 300), "actions": ["Дать взятку", "Уйти"], "grid_square": "11_3"}  # ✅ НОВОЕ
 }
 
 # ========== ДАННЫЕ ИГРОКА ==========
@@ -77,7 +79,7 @@ func _ready():
 	setup_game_systems()
 	connect_signals()
 	show_intro_text()
-	print("✅ Игра готова! (ИСПРАВЛЕНЫ КООРДИНАТЫ КЛИКОВ)")
+	print("✅ Игра готова! (Полиция + Массовые бои)")
 
 func load_autoload_systems():
 	items_db = get_node("/root/ItemsDB")
@@ -92,6 +94,7 @@ func load_autoload_systems():
 	simple_jobs = get_node_or_null("/root/SimpleJobs")
 	hospital_system = get_node_or_null("/root/HospitalSystem")
 	time_system = get_node_or_null("/root/TimeSystem")
+	police_system = get_node_or_null("/root/PoliceSystem")  # ✅ НОВОЕ
 
 func setup_grid_and_movement():
 	var grid_script = load("res://scripts/systems/grid_system.gd")
@@ -178,6 +181,11 @@ func setup_game_systems():
 	
 	if districts_system:
 		districts_system.district_captured.connect(on_district_captured)
+	
+	# ✅ НОВОЕ: Подключение сигналов полиции
+	if police_system:
+		police_system.ua_changed.connect(_on_ua_changed)
+		police_system.police_raid_started.connect(_on_police_raid)
 
 func connect_signals():
 	if time_system:
@@ -186,71 +194,43 @@ func connect_signals():
 		time_system.time_of_day_changed.connect(_on_time_of_day_changed)
 
 # ========================================
-# ОБРАБОТКА ВВОДА (ИСПРАВЛЕНО - VIEWPORT КООРДИНАТЫ!)
+# ОБРАБОТКА ВВОДА
 # ========================================
-
 func _unhandled_input(event):
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT:
-			# ✅ КРИТИЧНО: Используем позицию ВНУТРИ viewport, а не глобальную!
 			var click_pos = get_viewport().get_mouse_position()
 			
-			print("🎯 CLICK: " + str(click_pos))
-			
-			# Блокируем если идёт бой
 			if get_node_or_null("BattleScene"):
-				print("⚠️ Бой идёт")
 				return
 			
-			# Проверяем открытые меню
 			if has_any_menu_open():
-				print("⚠️ Меню открыто")
 				return
 			
-			# Дополнительная проверка UI зон
 			if is_click_on_ui(click_pos):
-				print("⚠️ Клик на UI")
 				return
 			
-			print("✅ Клик на сетку разрешён")
-			
-			# Проверка клика по сетке
 			if grid_movement_manager:
 				grid_movement_manager.handle_grid_click(click_pos)
 			
-			# Отмечаем что обработали
 			get_viewport().set_input_as_handled()
 
-# ✅ Проверка клика на UI
 func is_click_on_ui(click_pos: Vector2) -> bool:
-	# Верхняя панель: y < 120
 	if click_pos.y < 120:
-		print("   → Верхняя панель")
 		return true
-	
-	# Нижняя панель: y >= 1180
 	if click_pos.y >= 1180:
-		print("   → Нижняя панель y=%d" % click_pos.y)
 		return true
-	
-	# Кнопка заработка
 	if click_pos.x >= 590 and click_pos.x <= 710 and click_pos.y >= 55 and click_pos.y <= 105:
-		print("   → Кнопка заработка")
 		return true
-	
-	# Кнопка сетки
 	if click_pos.x >= 540 and click_pos.x <= 590 and click_pos.y >= 55 and click_pos.y <= 85:
-		print("   → Кнопка сетки")
 		return true
-	
 	return false
 
-# ✅ Проверка открытых меню
 func has_any_menu_open() -> bool:
 	var menus = [
 		"BuildingMenu", "GangMenu", "InventoryMenu", "QuestMenu",
 		"DistrictsMenu", "MainMenuLayer", "MovementMenu",
-		"HospitalMenu", "JobsMenu", "SellMenu"
+		"HospitalMenu", "JobsMenu", "SellMenu", "PoliceEncounter", "FSBMenu"  # ✅ НОВОЕ
 	]
 	
 	for menu_name in menus:
@@ -262,11 +242,16 @@ func has_any_menu_open() -> bool:
 # ========================================
 # МЕНЮ ЛОКАЦИЙ
 # ========================================
-
 func show_location_menu(location_name: String):
 	current_location = location_name
 	menu_open = true
 	print("🏢 Открываем меню: " + location_name)
+	
+	# ✅ НОВОЕ: Обработка ФСБ
+	if location_name == "ФСБ":
+		if police_system:
+			police_system.show_fsb_menu(self, player_data)
+		return
 	
 	var old_menu = get_node_or_null("BuildingMenu")
 	if old_menu:
@@ -304,7 +289,6 @@ func close_location_menu():
 		layer.queue_free()
 	menu_open = false
 	current_location = null
-	print("✅ Меню локации закрыто")
 
 func on_location_clicked(location_name: String):
 	show_location_menu(location_name)
@@ -313,7 +297,6 @@ func on_location_clicked(location_name: String):
 # ========================================
 # КНОПКИ НИЖНЕЙ ПАНЕЛИ
 # ========================================
-
 func on_bottom_button_pressed(button_name: String):
 	match button_name:
 		"Банда":
@@ -328,11 +311,37 @@ func on_bottom_button_pressed(button_name: String):
 # ========================================
 # ОБНОВЛЕНИЕ UI
 # ========================================
-
 func update_ui():
 	ui_controller.update_ui()
 	clicker_system.player_data = player_data
 	update_time_ui()
+	update_police_ui()  # ✅ НОВОЕ
+
+func update_police_ui():
+	"""Обновление индикатора УА"""
+	if not police_system or not ui_controller:
+		return
+	
+	var ui_layer = ui_controller.get_ui_layer()
+	var ua_label = ui_layer.get_node_or_null("UALabel")
+	
+	if not ua_label:
+		ua_label = Label.new()
+		ua_label.name = "UALabel"
+		ua_label.position = Vector2(480, 85)
+		ua_label.add_theme_font_size_override("font_size", 14)
+		ui_layer.add_child(ua_label)
+	
+	var ua = police_system.get_ua()
+	ua_label.text = "🚔 УА: %d/100" % ua
+	
+	var ua_color = Color.GREEN
+	if ua >= 75:
+		ua_color = Color.RED
+	elif ua >= 50:
+		ua_color = Color.YELLOW
+	
+	ua_label.add_theme_color_override("font_color", ua_color)
 
 func update_time_ui():
 	if not ui_controller or not time_system:
@@ -348,7 +357,6 @@ func show_message(text: String):
 # ========================================
 # СОБЫТИЯ ВРЕМЕНИ
 # ========================================
-
 func _on_time_changed(_hour: int, _minute: int):
 	update_time_ui()
 
@@ -372,9 +380,20 @@ func _on_time_of_day_changed(period: String):
 		show_message(messages[period])
 
 # ========================================
-# ОСТАЛЬНЫЕ ФУНКЦИИ (БЕЗ ИЗМЕНЕНИЙ)
+# СОБЫТИЯ ПОЛИЦИИ (НОВОЕ)
 # ========================================
+func _on_ua_changed(new_ua: int):
+	update_police_ui()
+	
+	if new_ua >= 100:
+		show_message("⚠️ ПОЛИЦИЯ НАЧАЛА РЕЙДЫ!")
 
+func _on_police_raid(district_name: String):
+	show_message("🚨 РЕЙД ПОЛИЦИИ В РАЙОНЕ: " + district_name)
+
+# ========================================
+# ОСТАЛЬНЫЕ ФУНКЦИИ
+# ========================================
 func show_intro_text():
 	var intro_layer = CanvasLayer.new()
 	intro_layer.name = "IntroLayer"
