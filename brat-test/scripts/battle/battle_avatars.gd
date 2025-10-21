@@ -2,7 +2,7 @@
 # Система аватарок бойцов в бою
 extends Node
 
-signal avatar_clicked(is_player_side: bool, index: int)
+signal avatar_clicked(character_data: Dictionary, is_player_team: bool)
 signal target_selected(enemy_index: int)
 
 var battle_logic
@@ -10,6 +10,7 @@ var items_db
 var player_stats
 
 var avatar_nodes = {}
+var selected_target_index: int = -1
 
 func _ready():
 	items_db = get_node_or_null("/root/ItemsDB")
@@ -25,139 +26,177 @@ func create_team_avatars(parent: CanvasLayer):
 	var player_x = 30
 	var player_y = 170
 	
-	for i in range(min(5, battle_logic.player_team.size())):
+	for i in range(battle_logic.player_team.size()):
 		create_avatar(battle_logic.player_team[i], Vector2(player_x, player_y), i, true, parent)
-		player_y += 65
-	
-	# Второй столбец (если больше 5)
-	if battle_logic.player_team.size() > 5:
-		player_x = 100
-		player_y = 170
-		for i in range(5, battle_logic.player_team.size()):
-			create_avatar(battle_logic.player_team[i], Vector2(player_x, player_y), i, true, parent)
-			player_y += 65
+		player_y += 130  # ✅ УВЕЛИЧЕНО расстояние между аватарками
 	
 	# Команда врагов (справа)
-	var enemy_x = 570
+	var enemy_x = 500  # ✅ СДВИНУТО левее для места под информацию
 	var enemy_y = 170
 	
-	for i in range(min(5, battle_logic.enemy_team.size())):
+	for i in range(battle_logic.enemy_team.size()):
 		create_avatar(battle_logic.enemy_team[i], Vector2(enemy_x, enemy_y), i, false, parent)
-		enemy_y += 65
-	
-	if battle_logic.enemy_team.size() > 5:
-		enemy_x = 640
-		enemy_y = 170
-		for i in range(5, battle_logic.enemy_team.size()):
-			create_avatar(battle_logic.enemy_team[i], Vector2(enemy_x, enemy_y), i, false, parent)
-			enemy_y += 65
+		enemy_y += 130  # ✅ УВЕЛИЧЕНО расстояние
 
 func create_avatar(fighter: Dictionary, pos: Vector2, index: int, is_player_side: bool, parent: CanvasLayer):
 	var avatar_container = Control.new()
-	avatar_container.custom_minimum_size = Vector2(60, 60)
+	avatar_container.custom_minimum_size = Vector2(120, 120)  # ✅ УВЕЛИЧЕНО в 2 раза
 	avatar_container.position = pos
 	avatar_container.name = ("Player" if is_player_side else "Enemy") + "Avatar_" + str(index)
 	avatar_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(avatar_container)
 	
-	# Фон аватарки (темно-серый для всех)
+	# Фон аватарки
 	var avatar_bg = ColorRect.new()
-	avatar_bg.size = Vector2(50, 50)
-	avatar_bg.color = Color(0.3, 0.3, 0.3, 1.0)  # Темно-серый
+	avatar_bg.size = Vector2(100, 100)  # ✅ УВЕЛИЧЕНО
+	avatar_bg.color = Color(0.3, 0.3, 0.3, 1.0)
 	avatar_bg.name = "AvatarBG"
 	avatar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	avatar_container.add_child(avatar_bg)
 	
+	# ИМЯ ПЕРСОНАЖА (сверху) ✅ ДОБАВЛЕНО
+	var name_label = Label.new()
+	name_label.text = fighter["name"]
+	name_label.position = Vector2(0, -20)
+	name_label.add_theme_font_size_override("font_size", 14)
+	name_label.add_theme_color_override("font_color", Color.WHITE)
+	name_label.name = "NameLabel"
+	avatar_container.add_child(name_label)
+	
 	# HP индикатор (красная полоса сверху вниз)
 	var hp_indicator = ColorRect.new()
 	var hp_percent = float(fighter["hp"]) / float(fighter["max_hp"])
-	hp_indicator.size = Vector2(50, 50 * (1.0 - hp_percent))
+	hp_indicator.size = Vector2(100, 100 * (1.0 - hp_percent))  # ✅ УВЕЛИЧЕНО
 	hp_indicator.position = Vector2(0, 0)
 	hp_indicator.color = Color(1.0, 0.0, 0.0, 0.6)
 	hp_indicator.name = "HPIndicator"
 	hp_indicator.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	avatar_container.add_child(hp_indicator)
 	
-	# Иконка персонажа (эмодзи)
+	# Иконка персонажа (эмодзи) ✅ УВЕЛИЧЕНО
 	var icon = Label.new()
 	icon.text = "🤵" if is_player_side else "💀"
-	icon.position = Vector2(10, 5)
-	icon.add_theme_font_size_override("font_size", 30)
+	icon.position = Vector2(25, 20)  # ✅ СДВИНУТО
+	icon.add_theme_font_size_override("font_size", 50)  # ✅ УВЕЛИЧЕНО
 	icon.name = "Icon"
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	avatar_container.add_child(icon)
 	
+	# ОБЛАСТЬ ВЫБОРА ЦЕЛИ (справа от аватарки) ✅ ДОБАВЛЕНО
+	if not is_player_side:
+		var target_area = ColorRect.new()
+		target_area.size = Vector2(150, 100)  # Область для клика
+		target_area.position = Vector2(105, 0)  # Справа от аватарки
+		target_area.color = Color(0, 0, 0, 0)  # Прозрачная
+		target_area.name = "TargetArea"
+		target_area.mouse_filter = Control.MOUSE_FILTER_STOP
+		avatar_container.add_child(target_area)
+		
+		# Кнопка выбора цели
+		var target_btn = Button.new()
+		target_btn.custom_minimum_size = Vector2(150, 100)
+		target_btn.position = Vector2(0, 0)
+		target_btn.text = "🎯\nВыбрать цель"
+		target_btn.add_theme_font_size_override("font_size", 12)
+		
+		var style_target = StyleBoxFlat.new()
+		style_target.bg_color = Color(0.2, 0.2, 0.2, 0.8)
+		target_btn.add_theme_stylebox_override("normal", style_target)
+		
+		var idx = index
+		target_btn.pressed.connect(func(): 
+			on_target_selected(idx, fighter)
+		)
+		target_area.add_child(target_btn)
+	
+	# ИНФОРМАЦИОННАЯ ПАНЕЛЬ (справа) ✅ ДОБАВЛЕНО
+	var info_panel = ColorRect.new()
+	info_panel.size = Vector2(150, 100)
+	info_panel.position = Vector2(105, 0)
+	info_panel.color = Color(0.1, 0.1, 0.1, 0.9)
+	info_panel.name = "InfoPanel"
+	avatar_container.add_child(info_panel)
+	
 	# HP текст
 	var hp_label = Label.new()
-	hp_label.text = "%d/%d" % [fighter["hp"], fighter["max_hp"]]
-	hp_label.position = Vector2(55, 5)
+	hp_label.text = "❤️ %d/%d" % [fighter["hp"], fighter["max_hp"]]
+	hp_label.position = Vector2(5, 5)
 	hp_label.add_theme_font_size_override("font_size", 12)
-	hp_label.add_theme_color_override("font_color", Color.WHITE)
+	hp_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3, 1.0))
 	hp_label.name = "HPLabel"
-	hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	avatar_container.add_child(hp_label)
+	info_panel.add_child(hp_label)
 	
 	# Мораль
 	var morale_label = Label.new()
 	morale_label.text = "💪 %d" % fighter["morale"]
-	morale_label.position = Vector2(55, 22)
-	morale_label.add_theme_font_size_override("font_size", 10)
+	morale_label.position = Vector2(5, 25)
+	morale_label.add_theme_font_size_override("font_size", 12)
 	morale_label.add_theme_color_override("font_color", get_morale_color(fighter["morale"]))
 	morale_label.name = "MoraleLabel"
-	morale_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	avatar_container.add_child(morale_label)
+	info_panel.add_child(morale_label)
+	
+	# Урон
+	var damage_label = Label.new()
+	damage_label.text = "⚔️ %d" % fighter["damage"]
+	damage_label.position = Vector2(5, 45)
+	damage_label.add_theme_font_size_override("font_size", 12)
+	damage_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8, 1.0))
+	damage_label.name = "DamageLabel"
+	info_panel.add_child(damage_label)
 	
 	# Статусы
 	var status_label = Label.new()
 	status_label.text = battle_logic.get_status_text(fighter)
-	status_label.position = Vector2(55, 36)
-	status_label.add_theme_font_size_override("font_size", 9)
+	status_label.position = Vector2(5, 65)
+	status_label.add_theme_font_size_override("font_size", 10)
 	status_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5, 1.0))
 	status_label.name = "StatusLabel"
-	status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	avatar_container.add_child(status_label)
+	info_panel.add_child(status_label)
 	
-	# Кнопка для кликов
-	var action_btn = Button.new()
-	action_btn.custom_minimum_size = Vector2(50, 50)
-	action_btn.position = Vector2(0, 0)
-	action_btn.text = ""
-	action_btn.name = "ActionBtn"
-	action_btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	# КНОПКА ПРОСМОТРА ИНВЕНТАРЯ (на самой аватарке) ✅ ДОБАВЛЕНО
+	var inventory_btn = Button.new()
+	inventory_btn.custom_minimum_size = Vector2(100, 100)  # ✅ УВЕЛИЧЕНО
+	inventory_btn.position = Vector2(0, 0)
+	inventory_btn.text = ""
+	inventory_btn.name = "InventoryBtn"
+	inventory_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color(1, 1, 1, 0.0)
-	action_btn.add_theme_stylebox_override("normal", style)
+	var style_inv = StyleBoxFlat.new()
+	style_inv.bg_color = Color(1, 1, 1, 0.0)  # Прозрачная
+	inventory_btn.add_theme_stylebox_override("normal", style_inv)
 	
 	var idx = index
 	var is_player = is_player_side
-	action_btn.pressed.connect(func(): 
-		on_avatar_clicked(is_player, idx, fighter)
+	inventory_btn.pressed.connect(func(): 
+		on_avatar_clicked(fighter, is_player, idx)
 	)
-	avatar_container.add_child(action_btn)
+	avatar_container.add_child(inventory_btn)
 	
 	# Сохраняем ссылку
 	var key = ("player" if is_player_side else "enemy") + "_" + str(index)
 	avatar_nodes[key] = avatar_container
 
 # ========== ОБРАБОТКА КЛИКОВ ==========
-func on_avatar_clicked(is_player_side: bool, index: int, fighter: Dictionary):
-	if is_player_side:
-		# Клик на союзника - открываем инвентарь
-		show_fighter_inventory(fighter, index, true)
-	else:
-		# Клик на врага
-		if Input.is_key_pressed(KEY_SHIFT):
-			# Shift - просмотр инвентаря врага
-			show_fighter_inventory(fighter, index, false)
-		else:
-			# Обычный клик - выбор цели
-			if not fighter["alive"]:
-				return
-			
-			if battle_logic.select_target(index):
-				target_selected.emit(index)
-				highlight_selected_target(index)
+func on_avatar_clicked(fighter: Dictionary, is_player_side: bool, index: int):
+	# ЛЮБОЙ клик на аватарку (игрок или враг) открывает инвентарь
+	avatar_clicked.emit(fighter, is_player_side)
+
+func on_target_selected(enemy_index: int, fighter: Dictionary):
+	# Клик на область выбора цели (только для врагов)
+	if not fighter["alive"]:
+		return
+	
+	# ✅ ВЫБОР ЦЕЛИ РАЗОВЫЙ - запоминаем выбранную цель
+	selected_target_index = enemy_index
+	
+	if battle_logic.select_target(enemy_index):
+		target_selected.emit(enemy_index)
+		highlight_selected_target(enemy_index)
+		
+		# Показываем сообщение о выборе цели
+		var main_node = get_tree().current_scene
+		if main_node and main_node.has_method("show_message"):
+			main_node.show_message("🎯 Цель выбрана: " + fighter["name"])
 
 func highlight_selected_target(enemy_index: int):
 	# Убираем старую подсветку
@@ -167,7 +206,7 @@ func highlight_selected_target(enemy_index: int):
 			var avatar = avatar_nodes[key]
 			var bg = avatar.get_node_or_null("AvatarBG")
 			if bg:
-				bg.color = Color(0.3, 0.3, 0.3, 1.0)  # Темно-серый
+				bg.color = Color(0.3, 0.3, 0.3, 1.0)  # Обычный цвет
 	
 	# Подсвечиваем новую цель
 	var key = "enemy_" + str(enemy_index)
@@ -176,6 +215,11 @@ func highlight_selected_target(enemy_index: int):
 		var bg = avatar.get_node_or_null("AvatarBG")
 		if bg:
 			bg.color = Color(0.8, 0.8, 0.2, 1.0)  # Желтый
+		
+		# Также подсвечиваем область выбора цели
+		var target_area = avatar.get_node_or_null("TargetArea")
+		if target_area:
+			target_area.color = Color(0.8, 0.8, 0.2, 0.3)
 
 # ========== ОБНОВЛЕНИЕ АВАТАРОК ==========
 func update_all_avatars():
@@ -194,16 +238,23 @@ func update_avatar_ui(fighter: Dictionary, index: int, is_player_side: bool):
 	
 	var avatar = avatar_nodes[key]
 	
+	# Обновление имени
+	var name_label = avatar.get_node_or_null("NameLabel")
+	if name_label:
+		name_label.text = fighter["name"]
+	
 	# Обновление HP индикатора
 	var hp_indicator = avatar.get_node_or_null("HPIndicator")
 	if hp_indicator:
 		var hp_percent = float(fighter["hp"]) / float(fighter["max_hp"])
-		hp_indicator.size = Vector2(50, 50 * (1.0 - hp_percent))
+		hp_indicator.size = Vector2(100, 100 * (1.0 - hp_percent))
 	
 	# Обновление HP текста
 	var hp_label = avatar.get_node_or_null("HPLabel")
 	if hp_label:
-		hp_label.text = "%d/%d" % [fighter["hp"], fighter["max_hp"]]
+		hp_label.text = "❤️ %d/%d" % [fighter["hp"], fighter["max_hp"]]
+		hp_label.add_theme_color_override("font_color", 
+			Color(1.0, 0.3, 0.3, 1.0) if fighter["hp"] < fighter["max_hp"] * 0.3 else Color(0.3, 1.0, 0.3, 1.0))
 	
 	# Обновление морали
 	var morale_label = avatar.get_node_or_null("MoraleLabel")
@@ -211,10 +262,24 @@ func update_avatar_ui(fighter: Dictionary, index: int, is_player_side: bool):
 		morale_label.text = "💪 %d" % fighter["morale"]
 		morale_label.add_theme_color_override("font_color", get_morale_color(fighter["morale"]))
 	
+	# Обновление урона
+	var damage_label = avatar.get_node_or_null("DamageLabel")
+	if damage_label:
+		damage_label.text = "⚔️ %d" % fighter["damage"]
+	
 	# Обновление статусов
 	var status_label = avatar.get_node_or_null("StatusLabel")
 	if status_label:
 		status_label.text = battle_logic.get_status_text(fighter)
+	
+	# Обновление видимости для мертвых
+	if not fighter["alive"]:
+		var icon = avatar.get_node_or_null("Icon")
+		if icon:
+			icon.text = "💀"
+		var bg = avatar.get_node_or_null("AvatarBG")
+		if bg:
+			bg.color = Color(0.1, 0.1, 0.1, 1.0)
 
 func get_morale_color(morale: int) -> Color:
 	if morale >= 70:
@@ -223,6 +288,21 @@ func get_morale_color(morale: int) -> Color:
 		return Color(1.0, 1.0, 0.3, 1.0)
 	else:
 		return Color(1.0, 0.3, 0.3, 1.0)
+
+# ========== ПОЛУЧЕНИЕ ВЫБРАННОЙ ЦЕЛИ ==========
+func get_selected_target_index() -> int:
+	return selected_target_index
+
+func clear_selected_target():
+	selected_target_index = -1
+	# Убираем подсветку со всех врагов
+	for i in range(battle_logic.enemy_team.size()):
+		var key = "enemy_" + str(i)
+		if avatar_nodes.has(key):
+			var avatar = avatar_nodes[key]
+			var bg = avatar.get_node_or_null("AvatarBG")
+			if bg:
+				bg.color = Color(0.3, 0.3, 0.3, 1.0)
 
 # ========== ИНВЕНТАРЬ В БОЮ ==========
 func show_fighter_inventory(fighter: Dictionary, index: int, is_ally: bool):

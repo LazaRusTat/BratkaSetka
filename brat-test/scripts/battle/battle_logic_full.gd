@@ -1,9 +1,9 @@
-# battle_logic_full.gd
-# Полная боевая логика с прицеливанием
-extends Node  # ✅ Правильное наследование для подмодуля
+# battle_logic_full.gd - ИСПРАВЛЕННАЯ ВЕРСИЯ
+extends Node
 
 signal turn_completed()
 signal battle_state_changed(new_state: String)
+signal avatar_clicked(character_data: Dictionary, is_player_team: bool)  # ✅ ДОБАВЛЕНО
 
 var player_team: Array = []
 var enemy_team: Array = []
@@ -36,6 +36,8 @@ func initialize(p_player_team: Array, p_enemy_team: Array):
 	turn = "player"
 	current_attacker_index = 0
 	buttons_locked = false
+	selected_target = null
+	selected_bodypart = ""
 	
 	print("⚔️ Бой: %d vs %d" % [player_team.size(), enemy_team.size()])
 
@@ -61,10 +63,11 @@ func clear_target():
 
 # ========== АТАКА ==========
 func start_attack() -> bool:
+	# ✅ ИСПРАВЛЕНО: Проверяем что цель существует и жива
 	if not selected_target:
 		return false
 	
-	if not selected_target["alive"]:
+	if not selected_target.get("alive", false):
 		clear_target()
 		return false
 	
@@ -84,6 +87,7 @@ func select_bodypart(part_key: String):
 	perform_attack()
 
 func perform_attack() -> Dictionary:
+	# ✅ ИСПРАВЛЕНО: Проверяем что цель существует
 	if not selected_target or selected_bodypart == "":
 		return {"success": false}
 	
@@ -359,3 +363,16 @@ func get_status_text(fighter: Dictionary) -> String:
 		statuses.append("🦵")
 	
 	return " ".join(statuses)
+
+# ✅ ДОБАВЛЕНО: Функции для доступа к командам
+func get_player_team() -> Array:
+	return player_team
+
+func get_enemy_team() -> Array:
+	return enemy_team
+
+func get_alive_player_count() -> int:
+	return count_alive(player_team)
+
+func get_alive_enemy_count() -> int:
+	return count_alive(enemy_team)
