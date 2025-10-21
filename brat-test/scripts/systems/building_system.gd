@@ -215,6 +215,7 @@ func buy_item(item_name: String, player_data: Dictionary, main_node: Node):
 # Меню продажи
 func show_sell_menu(player_data: Dictionary, main_node: Node):
 	var sell_menu = CanvasLayer.new()
+	sell_menu.layer = 25  # ✅ Выше сетки (1)
 	sell_menu.name = "SellMenu"
 	main_node.add_child(sell_menu)
 	

@@ -52,6 +52,7 @@ func _ready():
 # Показать меню больницы
 func show_hospital_menu(main_node: Node, player_data: Dictionary):
 	var hospital_menu = CanvasLayer.new()
+	hospital_menu.layer = 25  # ✅ Выше сетки (1)
 	hospital_menu.name = "HospitalMenu"
 	main_node.add_child(hospital_menu)
 	

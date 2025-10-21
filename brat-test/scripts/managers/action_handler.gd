@@ -25,6 +25,11 @@ func handle_location_action(location: String, action_index: int, main_node: Node
 	current_location = location
 	print("🎯 Обработка действия в " + location + ", индекс: " + str(action_index))
 	
+	# ✅ НОВОЕ: Обработка ФСБ
+	if location == "ФСБ":
+		handle_fsb_action(action_index, main_node)
+		return
+	
 	# Специальная обработка больницы
 	if location == "БОЛЬНИЦА":
 		handle_hospital_action(action_index, main_node)
@@ -77,3 +82,14 @@ func trigger_location_events(location_name: String, main_node: Node):
 
 func get_current_location() -> String:
 	return current_location
+func handle_fsb_action(action_index: int, main_node: Node):
+	var police_system = get_node_or_null("/root/PoliceSystem")
+	
+	match action_index:
+		0:  # Дать взятку
+			if police_system:
+				police_system.show_fsb_bribe_menu(main_node)
+			else:
+				main_node.show_message("Система полиции недоступна")
+		1:  # Уйти
+			main_node.close_location_menu()

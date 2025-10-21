@@ -1,15 +1,11 @@
-# grid_system.gd (ИСПРАВЛЕНО - ПОЛНАЯ АКТИВНОСТЬ СЕТКИ)
+# grid_system.gd (ИСПРАВЛЕННЫЙ - сетка ПОД всеми UI)
 extends CanvasLayer
 
 signal square_clicked(square_id: String)
 
-# ✅ КРИТИЧНО: Размеры подогнаны под карту
 var square_size: int = 60
 var grid_width: int = 12
-var grid_height: int = 17  # ✅ Было 16, стало 17 для покрытия всей области
-
-# Область карты: 120 (верхняя панель) до 1180 (нижняя панель) = 1060px
-# 1060 / 60 = 17.66 квадратов → округляем до 17
+var grid_height: int = 16
 
 var grid_squares = {}
 
@@ -25,10 +21,11 @@ var selected_square: String = ""
 var player_square: String = ""
 
 var draw_control: Control
+var toggle_button: Button
 var grid_visible: bool = true
 
 func _ready():
-	layer = 5
+	layer = 1  # ✅ КРИТИЧНО: слой 1 - ТОЛЬКО над картой (0), ПОД всеми UI (2+)
 	
 	draw_control = Control.new()
 	draw_control.position = Vector2(0, 0)
@@ -43,22 +40,9 @@ func _ready():
 	draw_control.queue_redraw()
 	
 	print("==================================================")
-	print("🗺️ СЕТКА (ИСПРАВЛЕНО):")
-	print("   Layer: %d" % layer)
-	print("   Grid: %dx%d = %d квадратов" % [grid_width, grid_height, grid_width * grid_height])
-	print("   Square size: %dpx" % square_size)
-	print("   Область карты: y=120 до y=1180 (высота=%d)" % (1180 - 120))
-	print("   Покрытие сеткой: %dpx (17×60)" % (grid_height * square_size))
+	print("🗺️ СЕТКА: Layer %d (над картой=0, под UI=2+)" % layer)
+	print("   Grid: %dx%d" % [grid_width, grid_height])
 	print("==================================================")
-
-func toggle_grid_visibility():
-	grid_visible = !grid_visible
-	draw_control.queue_redraw()
-	print("🗺️ Сетка: " + ("ВКЛ" if grid_visible else "ВЫКЛ"))
-	return grid_visible
-
-func is_grid_visible() -> bool:
-	return grid_visible
 
 func initialize_grid():
 	for y in range(grid_height):
@@ -112,13 +96,11 @@ func _draw_grid():
 	var line_color = Color.WHITE
 	var line_width = 2
 	
-	# Вертикальные линии
 	for x in range(grid_width + 1):
 		var start = Vector2(x * square_size, start_y)
 		var end = Vector2(x * square_size, end_y)
 		draw_control.draw_line(start, end, line_color, line_width)
 	
-	# Горизонтальные линии
 	for y in range(grid_height + 1):
 		var y_pos = start_y + y * square_size
 		if y_pos > end_y:
@@ -149,51 +131,26 @@ func _draw_grid():
 			draw_control.draw_rect(Rect2(building_pos, Vector2(24, 24)), Color.ORANGE, false, 3.0)
 
 func get_square_at_position(pos: Vector2) -> String:
-	print("🎯 GRID CHECK: pos=" + str(pos))
+	print("🎯 КЛИК: " + str(pos))
 	
-	# ✅ 1. Блокируем отрицательные X
-	if pos.x < 0:
-		print("   ❌ X < 0")
-		return ""
-	
-	# ✅ 2. Блокируем X >= 720
-	if pos.x >= 720:
-		print("   ❌ X >= 720")
-		return ""
-	
-	# ✅ 3. КРИТИЧНО: Блокируем Y < 120 (верхняя панель)
 	if pos.y < 120:
-		print("   ❌ Y < 120 (верхняя панель)")
+		print("   ❌ Верхняя панель")
+		return ""
+	if pos.y > 1180:
+		print("   ❌ Нижняя панель")
 		return ""
 	
-	# ✅ 4. КРИТИЧНО: Блокируем Y >= 1180 (нижняя панель)
-	if pos.y >= 1180:
-		print("   ❌ Y >= 1180 (нижняя панель)")
-		return ""
-	
-	# ✅ 5. Вычисляем координаты сетки
 	var adjusted_y = pos.y - 120
 	var grid_x = int(pos.x / square_size)
 	var grid_y = int(adjusted_y / square_size)
 	
-	print("   Сетка: x=%d, y=%d (adjusted_y=%.1f)" % [grid_x, grid_y, adjusted_y])
+	print("   Grid: x=%d, y=%d" % [grid_x, grid_y])
 	
-	# ✅ 6. Проверка границ сетки
-	if grid_x < 0 or grid_x >= grid_width:
-		print("   ❌ grid_x вне границ (0-%d)" % (grid_width - 1))
-		return ""
-	
-	if grid_y < 0 or grid_y >= grid_height:
-		print("   ❌ grid_y вне границ (0-%d)" % (grid_height - 1))
+	if grid_x < 0 or grid_x >= grid_width or grid_y < 0 or grid_y >= grid_height:
+		print("   ❌ Вне границ!")
 		return ""
 	
 	var square_id = "%d_%d" % [grid_x, grid_y]
-	
-	# ✅ 7. Проверка существования квадрата
-	if not grid_squares.has(square_id):
-		print("   ❌ Квадрат не существует: " + square_id)
-		return ""
-	
 	print("   ✅ Квадрат: " + square_id)
 	return square_id
 
@@ -264,3 +221,12 @@ func get_distance(square_a: String, square_b: String) -> int:
 	var a = grid_squares[square_a]
 	var b = grid_squares[square_b]
 	return abs(a["grid_x"] - b["grid_x"]) + abs(a["grid_y"] - b["grid_y"])
+
+func toggle_grid_visibility():
+	grid_visible = !grid_visible
+	draw_control.queue_redraw()
+	print("🗺️ Сетка: " + ("ВКЛ" if grid_visible else "ВЫКЛ"))
+	return grid_visible
+
+func is_grid_visible() -> bool:
+	return grid_visible
